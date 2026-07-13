@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "textSummarizer"
+version = "0.1.0"
+description = "A small python package for NLP app - Text Summarizer"
+readme = "README.md"
+requires-python = ">=3.11"    
+authors = [
+    { name = "suyashjain151504", email = "suyash151504@gmail.com" }
+]
+dependencies = [
+    "boto3>=1.43.46",
+    "datasets>=5.0.0",
+    "ensure==1.0.2",
+    "fastapi==0.78.0",
+    "jinja2==3.1.2",
+    "matplotlib>=3.11.0",
+    "mypy-boto3-s3>=1.43.31",
+    "nltk>=3.10.0",
+    "notebook>=7.6.0",
+    "pandas>=3.0.3",
+    "py7zr>=1.1.3",
+    "python-box==6.0.2",
+    "pyyaml>=6.0.3",
+    "rouge-score>=0.1.2",
+    "sacrebleu>=2.6.0",
+    "tqdm>=4.68.4",
+    "transformers[sentencepiece]>=5.13.1",
+    "uvicorn==0.18.3",
+]
+
+[project.optional-dependencies]
+dev = []
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[dependency-groups]
+dev = []
