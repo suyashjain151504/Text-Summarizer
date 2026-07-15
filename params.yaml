@@ -1,1 +1,13 @@
-key: value
+TrainingArguments:
+  num_train_epochs: 3
+  per_device_train_batch_size: 2
+  per_device_eval_batch_size: 2
+  gradient_accumulation_steps: 8
+  learning_rate: 2e-5
+  warmup_steps: 500
+  weight_decay: 0.01
+  logging_steps: 50
+  eval_strategy: epoch
+  save_strategy: epoch
+  fp16: True
+  gradient_checkpointing: True

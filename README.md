@@ -118,5 +118,81 @@ uv sync
 
 This ensures the package remains importable (`from textSummarizer import ...`) while you make changes to the source code.
 
+## Troubleshooting: Model Training Errors (Pegasus + Samsum Project)
+
+This section documents the three main errors faced while setting up and running the ModelTrainer for fine-tuning `google/pegasus-cnn_dailymail` on the Samsum dataset, along with the exact fixes applied.
+
+### Error 1: evaluation_strategy argument error
+
+**Error Message:**
+TypeError: TrainingArguments.__init__() got an unexpected keyword argument 'evaluation_strategy'
+
+**Root Cause:**
+In newer versions of the transformers library (≥ 4.46), the argument `evaluation_strategy` was deprecated and removed. It was replaced by `eval_strategy`.
+
+**Fix Applied:**
+Changed the argument name in TrainingArguments from `evaluation_strategy` to `eval_strategy`.
+
+Example fix in code:
+trainer_args = TrainingArguments(
+    ...
+    eval_strategy=self.config.eval_strategy,   # Changed from evaluation_strategy
+    ...
+)
+
+### Error 2: Missing or outdated accelerate library
+
+**Error Message:**
+ImportError: Using the `Trainer` with `PyTorch` requires `accelerate>=1.1.0`
+
+**Root Cause:**
+Newer versions of transformers made `accelerate` a hard dependency for the Trainer class. The installed version was either missing or older than 1.1.0.
+
+**Fix Applied:**
+Run these two commands and restart the Jupyter kernel:
+
+pip install --upgrade accelerate
+pip install --upgrade "transformers[torch]"
+
+### Error 3: tokenizer argument removed from Trainer
+
+**Error Message:**
+TypeError: Trainer.__init__() got an unexpected keyword argument 'tokenizer'
+
+**Root Cause:**
+In recent versions of transformers, the Trainer class no longer accepts the `tokenizer=` parameter. It was replaced by `processing_class=`.
+
+**Fix Applied:**
+Updated the Trainer initialization:
+
+From:
+trainer = Trainer(
+    model=model_pegasus,
+    args=trainer_args,
+    tokenizer=tokenizer,
+    data_collator=seq2seq_data_collator,
+    train_dataset=dataset_samsum_pt["test"],
+    eval_dataset=dataset_samsum_pt["validation"]
+)
+
+To:
+trainer = Trainer(
+    model=model_pegasus,
+    args=trainer_args,
+    processing_class=tokenizer,
+    data_collator=seq2seq_data_collator,
+    train_dataset=dataset_samsum_pt["test"],
+    eval_dataset=dataset_samsum_pt["validation"]
+)
+
+### Additional Notes
+
+- Model was sometimes loading from a PR branch (refs/pr/12) instead of main. This was fixed by adding revision="main" in from_pretrained() calls and clearing the local Hugging Face cache.
+- The "Missing embed_positions.weight" warnings are harmless. The checkpoint did not contain these weights, so they were randomly initialized.
+- The tokenizer alignment warning (PAD/BOS/EOS tokens) is also harmless. The library automatically fixed it.
+- All three errors were caused by version incompatibility between older tutorial code and newer versions of transformers + accelerate.
+
+After applying the above fixes, training started successfully and showed step-wise progress with training and validation loss.
+
 ## License
 This project is licensed under the MIT License.
