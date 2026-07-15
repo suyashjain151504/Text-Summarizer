@@ -38,3 +38,12 @@ class ModelTrainerConfig:
     save_strategy: str
     fp16: bool
     gradient_checkpointing: bool
+    
+    
+@dataclass(frozen=True)
+class ModelEvaluationConfig:
+    root_dir: Path
+    data_path: Path
+    model_path: Path
+    tokenizer_path: Path
+    metric_file_name: Path
