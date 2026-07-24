@@ -1,0 +1,149 @@
+name: Floci CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'README.md'
+      - '**.md'
+
+# No need for id-token: write because we are not using OIDC with real AWS
+permissions:
+  contents: read
+
+env:
+  # Floci defaults
+  AWS_ENDPOINT_URL: http://localhost:4566
+  AWS_DEFAULT_REGION: us-east-1
+  AWS_ACCESS_KEY_ID: test
+  AWS_SECRET_ACCESS_KEY: test
+  # Change this to whatever repository name you want
+  ECR_REPOSITORY: texts   # or your preferred name
+  IMAGE_TAG: latest
+  CONTAINER_NAME: texts
+  APP_PORT: 8080
+
+jobs:
+  # -------------------------------------------------
+  # 1. Continuous Integration (can stay on GitHub-hosted)
+  # -------------------------------------------------
+  integration:
+    name: Continuous Integration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies (for real tests later)
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Lint code
+        run: echo "Linting repository... (add flake8 / ruff here later)"
+
+      - name: Run unit tests
+        run: echo "Running unit tests... (add pytest here later)"
+
+  # -------------------------------------------------
+  # 2. Build & Push to local Floci ECR
+  #    MUST run on self-hosted so it can reach localhost:4566
+  # -------------------------------------------------
+  build-and-push-ecr-image:
+    name: Continuous Delivery (Floci ECR)
+    needs: integration
+    runs-on: self-hosted          # critical
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Verify Floci is reachable
+        run: |
+          echo "Checking Floci endpoint..."
+          curl -s -o /dev/null -w "%{http_code}" $AWS_ENDPOINT_URL || true
+          aws --endpoint-url=$AWS_ENDPOINT_URL sts get-caller-identity || true
+
+      - name: Create ECR repository (idempotent)
+        run: |
+          aws --endpoint-url=$AWS_ENDPOINT_URL ecr describe-repositories \
+            --repository-names $ECR_REPOSITORY 2>/dev/null || \
+          aws --endpoint-url=$AWS_ENDPOINT_URL ecr create-repository \
+            --repository-name $ECR_REPOSITORY
+
+      - name: Get Floci ECR repository URI
+        id: ecr
+        run: |
+          REPO_URI=$(aws --endpoint-url=$AWS_ENDPOINT_URL ecr describe-repositories \
+            --repository-names $ECR_REPOSITORY \
+            --query 'repositories[0].repositoryUri' \
+            --output text)
+          echo "REPO_URI=$REPO_URI" >> $GITHUB_OUTPUT
+          echo "Full Floci registry URI → $REPO_URI"
+
+      - name: Login to Floci ECR
+        run: |
+          aws --endpoint-url=$AWS_ENDPOINT_URL ecr get-login-password \
+            | docker login --username AWS --password-stdin ${{ steps.ecr.outputs.REPO_URI }}
+
+      - name: Build, tag and push image
+        run: |
+          docker build -t ${{ steps.ecr.outputs.REPO_URI }}:$IMAGE_TAG .
+          docker push ${{ steps.ecr.outputs.REPO_URI }}:$IMAGE_TAG
+          echo "Pushed → ${{ steps.ecr.outputs.REPO_URI }}:$IMAGE_TAG"
+
+  # -------------------------------------------------
+  # 3. Deploy to local “EC2” (just the self-hosted machine)
+  # -------------------------------------------------
+  continuous-deployment:
+    name: Continuous Deployment (local docker run)
+    needs: build-and-push-ecr-image
+    runs-on: self-hosted
+    steps:
+      - name: Checkout (optional, usually not needed)
+        uses: actions/checkout@v4
+
+      - name: Get Floci ECR repository URI again
+        id: ecr
+        run: |
+          REPO_URI=$(aws --endpoint-url=$AWS_ENDPOINT_URL ecr describe-repositories \
+            --repository-names $ECR_REPOSITORY \
+            --query 'repositories[0].repositoryUri' \
+            --output text)
+          echo "REPO_URI=$REPO_URI" >> $GITHUB_OUTPUT
+
+      - name: Login to Floci ECR
+        run: |
+          aws --endpoint-url=$AWS_ENDPOINT_URL ecr get-login-password \
+            | docker login --username AWS --password-stdin ${{ steps.ecr.outputs.REPO_URI }}
+
+      - name: Stop & remove previous container (if exists)
+        run: |
+          docker stop $CONTAINER_NAME 2>/dev/null || true
+          docker rm -f $CONTAINER_NAME 2>/dev/null || true
+
+      - name: Pull latest image from Floci ECR
+        run: |
+          docker pull ${{ steps.ecr.outputs.REPO_URI }}:$IMAGE_TAG
+
+      - name: Run the container
+        run: |
+          docker run -d \
+            --name $CONTAINER_NAME \
+            -p $APP_PORT:$APP_PORT \
+            -e AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID \
+            -e AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY \
+            -e AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION \
+            -e AWS_ENDPOINT_URL=$AWS_ENDPOINT_URL \
+            ${{ steps.ecr.outputs.REPO_URI }}:$IMAGE_TAG
+
+      - name: Clean up dangling images
+        run: docker system prune -f
+
+      - name: Show running container
+        run: docker ps --filter name=$CONTAINER_NAME
